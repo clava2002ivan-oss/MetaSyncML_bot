@@ -159,7 +159,7 @@ def _detect_inline_mode_from_reply_keyboard(reply_keyboard: ReplyKeyboardMarkup)
         pass
     return ""
 
-def _build_inline_keyboard(mode: str) -> InlineKeyboardMarkup | None:
+def _build_inline_keyboard(mode: str) -> Optional[InlineKeyboardMarkup]:
     if mode == "browse":
         return InlineKeyboardMarkup([
             [InlineKeyboardButton(text="❤️ Нравится", callback_data="pv_like"), InlineKeyboardButton(text="👎 Следующий", callback_data="pv_next")],
@@ -200,7 +200,7 @@ async def send_profile_album(
     caption_html = _truncate_caption_if_needed(caption_html, TELEGRAM_MAX_CAPTION)
 
     if user_data.photo_ids and len(user_data.photo_ids) > 0:
-        media: list[InputMediaPhoto] = []
+        media: List[InputMediaPhoto] = []
         for idx, pid in enumerate(user_data.photo_ids[:MAX_PHOTOS]):
             if idx == 0:
                 media.append(InputMediaPhoto(media=pid, caption=caption_html, parse_mode="HTML"))
