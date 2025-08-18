@@ -96,12 +96,12 @@ def _valid_nickname(nick: str) -> bool:
     return not any(ch in forbidden for ch in nick)
 
 def _parse_winrate(winrate_text: str) -> Optional[int]:
-    try:
-        winrate = int(winrate_text.strip())
-        if 0 <= winrate <= 100:
-            return winrate
-    except ValueError:
-        pass
+    text = (winrate_text or "").strip()
+    if not text.isdigit():
+        return None
+    winrate = int(text)
+    if 0 <= winrate <= 100:
+        return winrate
     return None
 
 def _matches_rank(user: db.UserProfile, selected_ranks: set) -> bool:
@@ -439,7 +439,7 @@ async def get_winrate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     winrate = _parse_winrate(text)
     if winrate is None:
         await update.message.reply_text(
-            "Эй, я просил только цифры от 0 до 100! 😊 Никаких букв и символов, только чистое число.\nПопробуй ещё раз:",
+            "Эй, я просил только цифры от 0 до 100! 😊 Никаких букв, точек и символов — только целое число.\n\n💡 Если у тебя 50.6% — округли до 51!\nПопробуй ещё раз:",
             reply_markup=ReplyKeyboardMarkup([["⬅️ Назад", "❌ Отмена"]], resize_keyboard=True)
         )
         return States.GET_WINRATE.value
@@ -1344,7 +1344,7 @@ async def handle_edit_profile_choice(update: Update, context: ContextTypes.DEFAU
         return States.EDIT_PROFILE_INPUT.value
     if field == "winrate":
         await update.message.reply_text(
-            "Введи новый winrate (0–100):",
+            "Введи новый winrate (0–100). Только цифры, без точек.\n\n💡 Если у тебя 50.6% — поставь 51",
             reply_markup=ReplyKeyboardMarkup([["⬅️ Назад"]], resize_keyboard=True)
         )
         return States.EDIT_PROFILE_INPUT.value
@@ -1407,7 +1407,7 @@ async def process_edit_profile_input(update: Update, context: ContextTypes.DEFAU
         winrate = _parse_winrate(choice)
         if winrate is None:
             await update.message.reply_text(
-                "Пожалуйста, введите число от 0 до 100!",
+                "Введите целое число от 0 до 100. Только цифры, без точек и символов.\n\n💡 Например, 50.6% округлите до 51.",
                 reply_markup=ReplyKeyboardMarkup([["⬅️ Назад"]], resize_keyboard=True)
             )
             return States.EDIT_PROFILE_INPUT.value
