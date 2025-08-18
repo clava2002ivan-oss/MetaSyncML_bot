@@ -5,9 +5,9 @@ import time
 import logging
 import random
 from enum import Enum, auto
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Final
 
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, Bot
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -16,15 +16,17 @@ from telegram.ext import (
     ContextTypes,
     filters,
     PicklePersistence,
+    CallbackContext,
+    CallbackQueryHandler,
 )
 from telegram.error import TelegramError
 
 from dotenv import load_dotenv
 load_dotenv()
 
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_TOKEN: Final[str] = os.environ.get("TELEGRAM_TOKEN", "")
 if not TELEGRAM_TOKEN:
-    raise RuntimeError("ОШИБКА: TELEGRAM_TOKEN не найден. Укажи его в переменных окружения или .env")
+    raise RuntimeError("TELEGRAM_TOKEN is missing in environment variables")
 
 import database as db  # our data layer
 
