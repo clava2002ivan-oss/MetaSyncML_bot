@@ -1,6 +1,8 @@
 # main.py
 # MLBB Team Finder bot ("Sil") — Telegram bot using python-telegram-bot v20
 import os
+import asyncio
+import fcntl
 import time
 import logging
 import random
@@ -283,6 +285,27 @@ async def show_main_menu(update: Update, text: str) -> None:
     )
 
 # -------- Entry / Persistence --------
+_LOCK_FILE_HANDLE = None
+
+def acquire_single_instance_lock(lock_file_path: str = "/tmp/mlbb_team_finder_bot.lock") -> None:
+    """Prevents starting more than one bot process on the same host.
+
+    This avoids Telegram "terminated by other getUpdates request" conflicts
+    caused by accidentally running two pollers in parallel (e.g. console +
+    Always-on task). If another instance holds the lock, we exit immediately.
+    """
+    global _LOCK_FILE_HANDLE
+    try:
+        _LOCK_FILE_HANDLE = open(lock_file_path, "w")
+        fcntl.flock(_LOCK_FILE_HANDLE.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _LOCK_FILE_HANDLE.write(str(os.getpid()))
+        _LOCK_FILE_HANDLE.flush()
+        logger.info("Acquired single-instance lock: %s", lock_file_path)
+    except BlockingIOError:
+        raise SystemExit(
+            "Обнаружен уже запущенный экземпляр бота на этой машине. "
+            "Остановите его (или дождитесь завершения) и запустите снова."
+        )
 def build_application() -> Application:
     # Persistence to allow resume after restart without /start
     persistence = PicklePersistence(filepath="bot_data.pkl")
@@ -1982,7 +2005,17 @@ async def handle_delete_confirm(update: Update, context: ContextTypes.DEFAULT_TY
     return States.DELETE_CONFIRM.value
 
 def main():
+    acquire_single_instance_lock()
+
     app = build_application()
+
+    # На всякий случай очищаем возможный webhook перед запуском polling,
+    # чтобы исключить конфликт режимов доставки обновлений.
+    try:
+        asyncio.run(app.bot.delete_webhook(drop_pending_updates=True))
+    except Exception:
+        logger.exception("delete_webhook failed (ignored)")
+
     app.run_polling()
 
 if __name__ == "__main__":
