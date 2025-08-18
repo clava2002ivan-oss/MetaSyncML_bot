@@ -180,8 +180,8 @@ def create_fill_profile_keyboard():
 
 def create_line_keyboard():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-    markup.row("Золотая линия", "Роам", "Средняя линия")
-    markup.row("Лес", "XP линия", "Везде")
+    markup.row("Голд", "Роум", "Мид")
+    markup.row("Лес", "Эксп", "Везде")
     markup.add(types.KeyboardButton("⬅️ Назад"))
     return markup
 
@@ -410,7 +410,7 @@ def process_line_step(message):
     """Шаг 3: Получение линии."""
     user_id = message.from_user.id
     if message.text == "⬅️ Назад": return back_to_start(message)
-    if message.text not in ["Золотая линия", "Роам", "Средняя линия", "Лес", "XP линия", "Везде"]:
+    if message.text not in ["Голд", "Роум", "Мид", "Лес", "Эксп", "Везде"]:
         msg = bot.send_message(user_id, "Пожалуйста, выберите линию с помощью кнопок.", reply_markup=create_line_keyboard())
         bot.register_next_step_handler(msg, process_line_step)
         return
@@ -614,8 +614,8 @@ def like_handler(message):
         if liker_profile and liked_profile:
             liker_username = f"@{liker_profile['telegram_username']}" if liker_profile.get('telegram_username') else "профиль"
             liked_username = f"@{liked_profile['telegram_username']}" if liked_profile.get('telegram_username') else "профиль"
-            bot.send_message(liker_id, f"🎉 Мэтч! Вы понравились игроку {liked_profile['nickname']}. Начните общение: {liked_username}")
-            bot.send_message(liked_id, f"🎉 Мэтч! Вы понравились игроку {liker_profile['nickname']}. Начните общение: {liker_username}")
+            bot.send_message(liker_id, f"🎉 У вас мэтч! Вот контакт: {liked_username}")
+            bot.send_message(liked_id, f"🎉 У вас мэтч! Вот контакт: {liker_username}")
 
     is_liked_by_flow = message.text == "❤️ Нравится в ответ"
     search_sessions[liker_id]['current_index'] += 1
