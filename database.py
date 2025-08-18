@@ -14,7 +14,18 @@ DB_PATH = os.environ.get("MLBB_DB_PATH", os.path.join(os.getcwd(), "mlbb.db"))
 
 
 def _get_connection() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
+    # Increase timeout to reduce 'database is locked' errors under concurrent access
+    conn = sqlite3.connect(DB_PATH, timeout=5.0)
+    try:
+        # Enable WAL journal for better concurrent read/write behavior
+        conn.execute("PRAGMA journal_mode=WAL")
+        # Ensure SQLite waits if the database is busy
+        conn.execute("PRAGMA busy_timeout=5000")
+        # Reasonable durability while reducing writer stalls
+        conn.execute("PRAGMA synchronous=NORMAL")
+    except Exception:
+        # Best-effort pragmas; ignore if not supported in the environment
+        pass
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -69,6 +80,9 @@ def check_database() -> None:
         )
         cur.execute("CREATE INDEX IF NOT EXISTS idx_views_viewed ON views(viewed_id)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_views_viewer ON views(viewer_id)")
+
+        # Performance indexes
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_users_last_active ON users(last_active_timestamp)")
 
         conn.commit()
     finally:

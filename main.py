@@ -1586,11 +1586,8 @@ async def handle_my_profile_inline_callback(update: Update, context: ContextType
         )
         return States.MAIN_MENU.value
     if data == "mp_edit":
-        # Переход в меню редактирования
-        # Эмулируем текстовую кнопку, чтобы переиспользовать существующую логику
-        fake_update = update
+        # Переход в меню редактирования (callback-контекст)
         if getattr(update, 'message', None) is None:
-            # Создадим простой ответ в чат с инструкцией
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
                 text="Выбери, что хочешь изменить:",
