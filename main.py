@@ -378,6 +378,7 @@ def build_application() -> Application:
             MessageHandler(filters.Regex("^(🚀 Быстрый поиск|⚙️ Поиск тиммейта|👤 Моя анкета|❤️ Понравился)$"), direct_menu_shortcut),
         ],
         allow_reentry=True,
+        per_message=True,
     )
 
     # Глобальный хэндлер для обновления активности на любой текст (не команды)
