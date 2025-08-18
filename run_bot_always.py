@@ -27,9 +27,9 @@ def main():
     """Основная функция запуска бота."""
     try:
         # Проверяем наличие токена
-        token = os.getenv('TOKEN')
+        token = os.getenv('TELEGRAM_TOKEN') or os.getenv('TOKEN')
         if not token:
-            logger.error("Токен бота не найден! Установите переменную TOKEN")
+            logger.error("Токен бота не найден! Установите переменную TELEGRAM_TOKEN (или TOKEN)")
             return
         
         logger.info("Запуск Telegram бота...")

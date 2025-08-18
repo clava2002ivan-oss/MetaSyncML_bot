@@ -13,6 +13,13 @@ TOKEN = get_token()
 
 # --- ИНИЦИАЛИЗАЦИЯ БОТА И ДАННЫХ ---
 bot = telebot.TeleBot(TOKEN)
+# Включаем сохранение шагов для продолжения диалога после перезапуска
+try:
+    bot.enable_save_next_step_handlers(delay=2)
+    bot.load_next_step_handlers()
+except Exception:
+    # Не падать, если механизм сохранения недоступен
+    pass
 # Словарь для временного хранения данных при регистрации анкеты
 user_data = {}
 
@@ -180,8 +187,8 @@ def create_fill_profile_keyboard():
 
 def create_line_keyboard():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-    markup.row("Gold Line", "Rome", "Средняя линия")
-    markup.row("Лес", "XP Line", "Везде")
+    markup.row("Золотая линия", "Роум", "Средняя линия")
+    markup.row("Лес", "XP линия", "Везде")
     markup.add(types.KeyboardButton("⬅️ Назад"))
     return markup
 
@@ -410,11 +417,23 @@ def process_line_step(message):
     """Шаг 3: Получение линии."""
     user_id = message.from_user.id
     if message.text == "⬅️ Назад": return back_to_start(message)
-    if message.text not in ["Gold Line", "Rome", "Средняя линия", "Лес", "XP Line", "Везде"]:
+    allowed_lines_map = {
+        "Золотая линия": "Золотая линия",
+        "Роум": "Роум",
+        "Средняя линия": "Средняя линия",
+        "Лес": "Лес",
+        "XP линия": "XP линия",
+        "Везде": "Везде",
+        # Поддержка старых значений
+        "Gold Line": "Золотая линия",
+        "Rome": "Роум",
+        "XP Line": "XP линия",
+    }
+    if message.text not in allowed_lines_map:
         msg = bot.send_message(user_id, "Пожалуйста, выберите линию с помощью кнопок.", reply_markup=create_line_keyboard())
         bot.register_next_step_handler(msg, process_line_step)
         return
-    user_data[user_id]['line'] = message.text
+    user_data[user_id]['line'] = allowed_lines_map[message.text]
     msg = bot.send_message(user_id, "Выберите ваш текущий ранг:", reply_markup=create_rank_keyboard())
     bot.register_next_step_handler(msg, process_rank_step)
 
@@ -551,7 +570,37 @@ def quick_search_handler(message):
     """Начинает быстрый поиск активных игроков."""
     user_id = message.from_user.id
     update_last_active(user_id)
-    profiles_found = get_active_profiles(user_id)
+    # Учитываем ранг пользователя при быстром поиске
+    my_profile = get_profile(user_id)
+    if not my_profile:
+        bot.send_message(user_id, "Сначала создайте анкету!", reply_markup=create_fill_profile_keyboard())
+        return
+    my_rank = my_profile.get('rank')
+    conn = sqlite3.connect(DATABASE_NAME)
+    cursor = conn.cursor()
+    time_threshold = datetime.now() - timedelta(minutes=ACTIVE_TIMEOUT_MINUTES)
+    if my_rank:
+        cursor.execute(
+            """
+            SELECT user_id FROM profiles
+            WHERE user_id != ? AND last_active >= ? AND rank = ?
+            ORDER BY last_active DESC
+            LIMIT ?
+            """,
+            (user_id, time_threshold, my_rank, MAX_PROFILES_PER_SEARCH)
+        )
+    else:
+        cursor.execute(
+            """
+            SELECT user_id FROM profiles
+            WHERE user_id != ? AND last_active >= ?
+            ORDER BY last_active DESC
+            LIMIT ?
+            """,
+            (user_id, time_threshold, MAX_PROFILES_PER_SEARCH)
+        )
+    profiles_found = [row[0] for row in cursor.fetchall()]
+    conn.close()
     if not profiles_found:
         bot.send_message(user_id, "😔 Активных игроков поблизости не найдено. Попробуйте позже.", reply_markup=create_main_menu_keyboard())
         return
@@ -587,6 +636,8 @@ def next_profile_handler(message):
         search_sessions[user_id]['current_index'] += 1
         is_liked_by_flow = message.text == "👎 Пропустить"
         show_next_profile_in_search(user_id, is_liked_by_flow)
+    else:
+        bot.send_message(user_id, "Сессия поиска не активна. Нажмите «🚀 Быстрый поиск» или «❤️ Понравился».", reply_markup=create_main_menu_keyboard())
 
 @bot.message_handler(func=lambda message: message.text in ["⏹️ Завершить поиск", "⏹️ Вернуться в меню", "⬅️ В меню"])
 def stop_search_handler(message):
@@ -600,7 +651,9 @@ def like_handler(message):
     """Обрабатывает лайк и проверяет на мэтч."""
     liker_id = message.from_user.id
     update_last_active(liker_id)
-    if liker_id not in search_sessions: return
+    if liker_id not in search_sessions:
+        bot.send_message(liker_id, "Сессия поиска не активна. Нажмите «🚀 Быстрый поиск» или «❤️ Понравился».", reply_markup=create_main_menu_keyboard())
+        return
     session = search_sessions[liker_id]
     if session['current_index'] >= len(session['profiles']): return
     liked_id = session['profiles'][session['current_index']]
