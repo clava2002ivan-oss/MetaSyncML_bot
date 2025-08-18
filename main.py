@@ -8,7 +8,7 @@ from enum import Enum, auto
 from typing import Optional, List, Dict, Any
 from html import escape
 
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, Bot
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, Bot, InputMediaPhoto, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -17,6 +17,7 @@ from telegram.ext import (
     ContextTypes,
     filters,
     PicklePersistence,
+    CallbackQueryHandler,
 )
 from telegram.error import TelegramError
 
@@ -140,115 +141,133 @@ async def get_user_profile_text(user_data: db.UserProfile, short: bool = False) 
         profile_text += f"\n🖼️ <b>Фото:</b> {len(user_data.photo_ids)}"
     return profile_text
 
+def _detect_inline_mode_from_reply_keyboard(reply_keyboard: ReplyKeyboardMarkup) -> str:
+    """Определяет тип набора инлайн-кнопок по переданной ReplyKeyboardMarkup.
+    Возвращает один из: 'browse', 'likes', 'my_profile', либо пустую строку.
+    """
+    try:
+        rows = getattr(reply_keyboard, "keyboard", [])
+        flat = [btn for row in rows for btn in row]
+        s = set(flat)
+        if {"❤️ Нравится", "👎 Следующий"}.issubset(s) or "⏹️ Завершить поиск" in s:
+            return "browse"
+        if {"❤️ Взаимно", "👎 Пропустить"}.issubset(s) or "⏹️ В меню" in s:
+            return "likes"
+        if {"✏️ Редактировать анкету", "📊 Статистика"}.issubset(s) or "⬅️ В главное меню" in s:
+            return "my_profile"
+    except Exception:
+        pass
+    return ""
+
+def _build_inline_keyboard(mode: str) -> InlineKeyboardMarkup | None:
+    if mode == "browse":
+        return InlineKeyboardMarkup([
+            [InlineKeyboardButton(text="❤️ Нравится", callback_data="pv_like"), InlineKeyboardButton(text="👎 Следующий", callback_data="pv_next")],
+            [InlineKeyboardButton(text="⏹️ Завершить поиск", callback_data="pv_stop")],
+        ])
+    if mode == "likes":
+        return InlineKeyboardMarkup([
+            [InlineKeyboardButton(text="❤️ Взаимно", callback_data="lk_mutual"), InlineKeyboardButton(text="👎 Пропустить", callback_data="lk_skip")],
+            [InlineKeyboardButton(text="⏹️ В меню", callback_data="lk_menu")],
+        ])
+    if mode == "my_profile":
+        return InlineKeyboardMarkup([
+            [InlineKeyboardButton(text="✏️ Редактировать анкету", callback_data="mp_edit")],
+            [InlineKeyboardButton(text="📊 Статистика", callback_data="mp_stats")],
+            [InlineKeyboardButton(text="⬅️ В главное меню", callback_data="mp_menu")],
+        ])
+    return None
+
+def _truncate_caption_if_needed(text: str, limit: int = 1024) -> str:
+    if text is None:
+        return ""
+    if len(text) <= limit:
+        return text
+    # Обрезаем аккуратно
+    return text[: max(0, limit - 1)] + "…"
+
+async def send_profile_album(
+    bot: Bot,
+    chat_id: int,
+    user_data: db.UserProfile,
+    caption_prefix: str = "",
+    inline_mode: str = "",
+    short: bool = False,
+) -> None:
+    """Отправляет анкету альбомом: до 5 фото одним сообщением, подпись и инлайн-кнопки только под первой фотографией."""
+    text_html = await get_user_profile_text(user_data, short)
+    caption_html = f"{escape(caption_prefix)}{text_html}"
+    caption_html = _truncate_caption_if_needed(caption_html, TELEGRAM_MAX_CAPTION)
+
+    if user_data.photo_ids and len(user_data.photo_ids) > 0:
+        media: list[InputMediaPhoto] = []
+        for idx, pid in enumerate(user_data.photo_ids[:MAX_PHOTOS]):
+            if idx == 0:
+                media.append(InputMediaPhoto(media=pid, caption=caption_html, parse_mode="HTML"))
+            else:
+                media.append(InputMediaPhoto(media=pid))
+
+        try:
+            messages = await bot.send_media_group(chat_id=chat_id, media=media)
+            if not messages:
+                return
+            first_msg = messages[0]
+            inline_kb = _build_inline_keyboard(inline_mode)
+            if inline_kb is not None:
+                await first_msg.edit_caption(caption=caption_html, parse_mode="HTML", reply_markup=inline_kb)
+        except TelegramError:
+            logger.exception(f"Error sending media group to {chat_id}")
+            # Фолбек: отправим хотя бы текст
+            try:
+                await bot.send_message(chat_id=chat_id, text=caption_html, parse_mode="HTML")
+            except TelegramError:
+                logger.exception(f"Also failed to send text to {chat_id}")
+    else:
+        # Нет фото — просто отправим текст (без инлайн-кнопок)
+        await bot.send_message(chat_id=chat_id, text=caption_html, parse_mode="HTML")
+
 async def send_profile_card(bot: Bot, chat_id: int, user_data: db.UserProfile, prefix: str = "", short: bool = False) -> None:
-    """Отправляет профиль в указанный чат"""
+    """Отправляет профиль в указанный чат как альбом (если есть фото). Без инлайн-кнопок."""
     if not user_data:
         await bot.send_message(chat_id=chat_id, text="Ошибка: данные профиля не найдены")
         return
-    
+
     try:
-        text_html = await get_user_profile_text(user_data, short)
-        caption_html = f"{escape(prefix)}{text_html}"
-
-        # Проверяем, есть ли у пользователя фотографии
-        if user_data.photo_ids and len(user_data.photo_ids) > 0:
-            # Первая фотография с подписью, если она помещается в лимит Telegram
-            if len(caption_html) <= TELEGRAM_MAX_CAPTION:
-                await bot.send_photo(
-                    chat_id=chat_id,
-                    photo=user_data.photo_ids[0],
-                    caption=caption_html,
-                    parse_mode="HTML"
-                )
-            else:
-                await bot.send_photo(
-                    chat_id=chat_id,
-                    photo=user_data.photo_ids[0]
-                )
-                await bot.send_message(
-                    chat_id=chat_id,
-                    text=caption_html,
-                    parse_mode="HTML"
-                )
-
-            # Если есть дополнительные фотографии, отправляем их отдельными сообщениями
-            for photo_id in user_data.photo_ids[1:]:
-                await bot.send_photo(
-                    chat_id=chat_id,
-                    photo=photo_id
-                )
-        else:
-            await bot.send_message(
-                chat_id=chat_id,
-                text=caption_html,
-                parse_mode="HTML"
-            )
-    except TelegramError as e:
+        await send_profile_album(bot, chat_id, user_data, caption_prefix=prefix, inline_mode="", short=short)
+    except TelegramError:
         logger.exception(f"Error sending profile card to {chat_id}")
         try:
-            await bot.send_message(
-                chat_id=chat_id,
-                text="Не удалось загрузить анкету (возможно, фото устарело)."
-            )
+            await bot.send_message(chat_id=chat_id, text="Не удалось загрузить анкету (возможно, фото устарело).")
         except TelegramError:
             logger.exception(f"Failed to send error message to {chat_id}")
 
 async def show_profile_card(update: Update, keyboard, user_data: db.UserProfile, prefix: str = "", short: bool = False) -> None:
-    """Отображает профиль в текущем чате"""
+    """Отображает профиль в текущем чате как альбом с подписью и инлайн-кнопками только на первой фотографии.
+    Тип инлайн-кнопок определяется по содержимому reply-клавиатуры (browse/likes/my_profile).
+    """
     if not update or not update.message or not user_data:
         return
-    
+
     try:
-        text_html = await get_user_profile_text(user_data, short)
-        caption_html = f"{escape(prefix)}{text_html}"
+        inline_mode = ""
+        if isinstance(keyboard, ReplyKeyboardMarkup):
+            inline_mode = _detect_inline_mode_from_reply_keyboard(keyboard)
 
-        # Проверяем, есть ли у пользователя фотографии
-        if user_data.photo_ids and len(user_data.photo_ids) > 0:
-            # Первая фотография с подписью и клавиатурой, если подпись помещается
-            if len(caption_html) <= TELEGRAM_MAX_CAPTION:
-                await update.message.reply_photo(
-                    photo=user_data.photo_ids[0],
-                    caption=caption_html,
-                    reply_markup=keyboard,
-                    parse_mode="HTML"
-                )
-            else:
-                await update.message.reply_photo(
-                    photo=user_data.photo_ids[0],
-                    reply_markup=keyboard,
-                    parse_mode=None
-                )
-                await update.message.reply_text(
-                    caption_html,
-                    reply_markup=ReplyKeyboardRemove(),
-                    parse_mode="HTML"
-                )
-
-            # Если есть дополнительные фотографии, отправляем их отдельными сообщениями
-            for photo_id in user_data.photo_ids[1:]:
-                await update.message.reply_photo(
-                    photo=photo_id,
-                    reply_markup=ReplyKeyboardRemove()
-                )
-        else:
-            await update.message.reply_text(
-                caption_html,
-                reply_markup=keyboard,
-                parse_mode="HTML"
-            )
-    except Exception as e:
-        logger.exception("Error showing profile card")
-        await update.message.reply_text(
-            "Не удалось загрузить анкету (возможно, фото устарело)."
+        await send_profile_album(
+            bot=update.get_bot(),
+            chat_id=update.effective_chat.id,
+            user_data=user_data,
+            caption_prefix=prefix,
+            inline_mode=inline_mode,
+            short=short,
         )
+    except Exception:
+        logger.exception("Error showing profile card")
         try:
-            await update.message.reply_text(
-                caption_html,
-                reply_markup=keyboard,
-                parse_mode="HTML"
-            )
+            text_html = await get_user_profile_text(user_data, short)
+            caption_html = f"{escape(prefix)}{text_html}"
+            await update.message.reply_text(caption_html, parse_mode="HTML")
         except Exception:
-            # Игнорируем повторную ошибку отправки форматированного текста
             pass
 
 async def show_main_menu(update: Update, text: str) -> None:
@@ -325,15 +344,18 @@ def build_application() -> Application:
             ],
             States.QUICK_SEARCH_VIEWING.value: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_profile_view_action),
+                CallbackQueryHandler(handle_browse_inline_callback, pattern=r"^pv_"),
             ],
             States.ADVANCED_SEARCH_SETUP.value: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_advanced_search_setup),
             ],
             States.ADVANCED_SEARCH_VIEWING.value: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_profile_view_action),
+                CallbackQueryHandler(handle_browse_inline_callback, pattern=r"^pv_"),
             ],
             States.LIKES_VIEWING.value: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_likes_viewing_action),
+                CallbackQueryHandler(handle_likes_inline_callback, pattern=r"^lk_"),
             ],
             States.EDIT_PHOTO.value: [
                 MessageHandler(filters.PHOTO, handle_edit_photo),
@@ -347,6 +369,7 @@ def build_application() -> Application:
             ],
             States.VIEW_STATS.value: [  # Добавлено новое состояние
                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_stats_view),
+                CallbackQueryHandler(handle_my_profile_inline_callback, pattern=r"^mp_"),
             ],
         },
         fallbacks=[
@@ -1149,6 +1172,32 @@ async def show_next_profile(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     context.user_data['current_index'] = idx + 1
     return state_to_return
 
+async def show_next_profile_inline(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Версия показа следующего профиля для инлайн-кнопок (callback_query)."""
+    profiles = context.user_data.get('search_results', [])
+    idx = context.user_data.get('current_index', 0)
+    view_type = context.user_data.get('view_type')
+    state_to_return = States.QUICK_SEARCH_VIEWING.value if view_type == 'quick' else States.ADVANCED_SEARCH_VIEWING.value
+
+    chat_id = update.effective_chat.id
+
+    if idx >= len(profiles):
+        keyboard = ReplyKeyboardMarkup([["🔄 Начать поиск заново", "⚙️ Изменить критерии"], ["⬅️ В главное меню"]], resize_keyboard=True)
+        await context.bot.send_message(chat_id=chat_id, text="Это все анкеты по твоему запросу. 📋", reply_markup=keyboard)
+        return state_to_return
+
+    pdata = profiles[idx]
+    profile = db.UserProfile(**pdata) if isinstance(pdata, dict) else pdata
+    try:
+        db.add_profile_view(update.effective_user.id, profile.user_id)
+    except Exception:
+        logger.exception("add_profile_view failed")
+
+    await send_profile_album(context.bot, chat_id, profile, caption_prefix="", inline_mode="browse", short=True)
+    context.user_data['current_viewed_profile'] = pdata
+    context.user_data['current_index'] = idx + 1
+    return state_to_return
+
 async def handle_profile_view_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     choice = update.message.text
     view_type = context.user_data.get('view_type')
@@ -1237,6 +1286,52 @@ async def handle_profile_view_action(update: Update, context: ContextTypes.DEFAU
             return States.ADVANCED_SEARCH_SETUP.value
 
     return state_to_return
+
+async def handle_browse_inline_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    data = query.data if query else ""
+    await query.answer()
+
+    if data == "pv_stop":
+        await show_main_menu(await update.to_dict().get('update', None) or update, "Поиск завершён. До новых встреч! 👋")
+        return States.MAIN_MENU.value
+
+    if data == "pv_next":
+        # показать следующий профиль
+        return await show_next_profile_inline(update, context)
+
+    if data == "pv_like":
+        current_profile = context.user_data.get('current_viewed_profile')
+        if current_profile:
+            liked_user_id = current_profile['user_id'] if isinstance(current_profile, dict) else current_profile.user_id
+            try:
+                db.add_like(update.effective_user.id, liked_user_id)
+                if db.has_like(liked_user_id, update.effective_user.id):
+                    liked_user = db.get_user_by_id(liked_user_id)
+                    me = db.get_user_by_id(update.effective_user.id)
+                    if liked_user and me:
+                        try:
+                            await context.bot.send_message(chat_id=liked_user_id, text=f"🎉 У вас мэтч с {me.nickname}! Напиши ему/ей: @{me.telegram_username or 'скрыто'}")
+                            await send_profile_card(context.bot, liked_user_id, me, prefix="Его анкета:\n\n")
+                            await send_profile_card(context.bot, liked_user_id, liked_user, prefix="Твоя анкета:\n\n")
+                        except TelegramError:
+                            logger.exception("Failed to notify liked_user inline")
+                        try:
+                            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"🎉 Мэтч! @{liked_user.telegram_username or 'скрыто'}")
+                        except TelegramError:
+                            logger.exception("Failed to notify me inline")
+                else:
+                    try:
+                        await context.bot.send_message(chat_id=update.effective_chat.id, text="Лайк отправлен! Если будет взаимно — я сразу сообщу. ❤️")
+                    except TelegramError:
+                        pass
+            except Exception:
+                logger.exception("add_like failed inline")
+        # после лайка показываем следующий
+        return await show_next_profile_inline(update, context)
+
+    # по умолчанию — без изменения состояния
+    return States.QUICK_SEARCH_VIEWING.value if context.user_data.get('view_type') == 'quick' else States.ADVANCED_SEARCH_VIEWING.value
 
 # ---- Likes viewing ----
 async def show_likes_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
