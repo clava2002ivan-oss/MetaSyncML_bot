@@ -25,7 +25,7 @@ def get_token():
 DATABASE_NAME = 'mlbb_finder.db'
 
 # Настройки поиска
-ACTIVE_TIMEOUT_MINUTES = 10  # Время активности пользователя в минутах
+ACTIVE_TIMEOUT_MINUTES = 5  # Время активности пользователя в минутах
 
 # Настройки интерфейса
 MAX_PROFILES_PER_SEARCH = 50  # Максимальное количество профилей в поиске
