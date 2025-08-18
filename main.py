@@ -6,6 +6,7 @@ import logging
 import random
 from enum import Enum, auto
 from typing import Optional, List, Dict, Any
+from html import escape
 
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, Bot
 from telegram.ext import (
@@ -58,6 +59,7 @@ MAX_PHOTOS = 5
 
 # Максимальная длина текста "О себе" для отображения в карточке
 MAX_ABOUT_LENGTH = 200
+TELEGRAM_MAX_CAPTION = 1024
 
 # -------- States --------
 class States(Enum):
@@ -117,26 +119,25 @@ def _matches_rank(user: db.UserProfile, selected_ranks: set) -> bool:
 async def get_user_profile_text(user_data: db.UserProfile, short: bool = False) -> str:
     if not user_data:
         return "Ошибка: данные профиля не найдены"
-    
-    about_text = user_data.about
+
+    about_text = user_data.about or ""
     if short and len(about_text) > MAX_ABOUT_LENGTH:
         about_text = about_text[:MAX_ABOUT_LENGTH] + "..."
-    
+
     profile_text = (
-        f"👤 *Ник:* {user_data.nickname}\n"
-        f"📊 *Winrate:* {user_data.winrate}%\n"
-        f"⚔️ *Линия:* {user_data.line}\n"
-        f"🏆 *Ранг:* {user_data.rank}"
+        f"👤 <b>Ник:</b> {escape(user_data.nickname)}\n"
+        f"📊 <b>Winrate:</b> {user_data.winrate}%\n"
+        f"⚔️ <b>Линия:</b> {escape(user_data.line)}\n"
+        f"🏆 <b>Ранг:</b> {escape(user_data.rank)}"
     )
     if user_data.mythic_rank:
-        profile_text += f" ({user_data.mythic_rank})"
+        profile_text += f" ({escape(user_data.mythic_rank)})"
     profile_text += (
-        f"\n🎯 *Цель:* {user_data.goal}\n"
-        f"📝 *О себе:* {about_text}"
+        f"\n🎯 <b>Цель:</b> {escape(user_data.goal)}\n"
+        f"📝 <b>О себе:</b> {escape(about_text)}"
     )
-    # Добавляем информацию о количестве фотографий
     if user_data.photo_ids and len(user_data.photo_ids) > 0:
-        profile_text += f"\n🖼️ *Фото:* {len(user_data.photo_ids)}"
+        profile_text += f"\n🖼️ <b>Фото:</b> {len(user_data.photo_ids)}"
     return profile_text
 
 async def send_profile_card(bot: Bot, chat_id: int, user_data: db.UserProfile, prefix: str = "", short: bool = False) -> None:
@@ -146,19 +147,30 @@ async def send_profile_card(bot: Bot, chat_id: int, user_data: db.UserProfile, p
         return
     
     try:
-        text_md = await get_user_profile_text(user_data, short)
-        caption = f"{prefix}{text_md}"
-        
+        text_html = await get_user_profile_text(user_data, short)
+        caption_html = f"{escape(prefix)}{text_html}"
+
         # Проверяем, есть ли у пользователя фотографии
         if user_data.photo_ids and len(user_data.photo_ids) > 0:
-            # Отправляем первую фотографию с подписью
-            await bot.send_photo(
-                chat_id=chat_id,
-                photo=user_data.photo_ids[0],
-                caption=caption,
-                parse_mode="Markdown"
-            )
-            
+            # Первая фотография с подписью, если она помещается в лимит Telegram
+            if len(caption_html) <= TELEGRAM_MAX_CAPTION:
+                await bot.send_photo(
+                    chat_id=chat_id,
+                    photo=user_data.photo_ids[0],
+                    caption=caption_html,
+                    parse_mode="HTML"
+                )
+            else:
+                await bot.send_photo(
+                    chat_id=chat_id,
+                    photo=user_data.photo_ids[0]
+                )
+                await bot.send_message(
+                    chat_id=chat_id,
+                    text=caption_html,
+                    parse_mode="HTML"
+                )
+
             # Если есть дополнительные фотографии, отправляем их отдельными сообщениями
             for photo_id in user_data.photo_ids[1:]:
                 await bot.send_photo(
@@ -168,8 +180,8 @@ async def send_profile_card(bot: Bot, chat_id: int, user_data: db.UserProfile, p
         else:
             await bot.send_message(
                 chat_id=chat_id,
-                text=caption,
-                parse_mode="Markdown"
+                text=caption_html,
+                parse_mode="HTML"
             )
     except TelegramError as e:
         logger.exception(f"Error sending profile card to {chat_id}")
@@ -187,19 +199,31 @@ async def show_profile_card(update: Update, keyboard, user_data: db.UserProfile,
         return
     
     try:
-        text_md = await get_user_profile_text(user_data, short)
-        caption = f"{prefix}{text_md}"
-        
+        text_html = await get_user_profile_text(user_data, short)
+        caption_html = f"{escape(prefix)}{text_html}"
+
         # Проверяем, есть ли у пользователя фотографии
         if user_data.photo_ids and len(user_data.photo_ids) > 0:
-            # Отправляем первую фотографию с подписью и клавиатурой
-            await update.message.reply_photo(
-                photo=user_data.photo_ids[0],
-                caption=caption,
-                reply_markup=keyboard,
-                parse_mode="Markdown"
-            )
-            
+            # Первая фотография с подписью и клавиатурой, если подпись помещается
+            if len(caption_html) <= TELEGRAM_MAX_CAPTION:
+                await update.message.reply_photo(
+                    photo=user_data.photo_ids[0],
+                    caption=caption_html,
+                    reply_markup=keyboard,
+                    parse_mode="HTML"
+                )
+            else:
+                await update.message.reply_photo(
+                    photo=user_data.photo_ids[0],
+                    reply_markup=keyboard,
+                    parse_mode=None
+                )
+                await update.message.reply_text(
+                    caption_html,
+                    reply_markup=ReplyKeyboardRemove(),
+                    parse_mode="HTML"
+                )
+
             # Если есть дополнительные фотографии, отправляем их отдельными сообщениями
             for photo_id in user_data.photo_ids[1:]:
                 await update.message.reply_photo(
@@ -208,20 +232,24 @@ async def show_profile_card(update: Update, keyboard, user_data: db.UserProfile,
                 )
         else:
             await update.message.reply_text(
-                caption,
+                caption_html,
                 reply_markup=keyboard,
-                parse_mode="Markdown"
+                parse_mode="HTML"
             )
     except Exception as e:
         logger.exception("Error showing profile card")
         await update.message.reply_text(
             "Не удалось загрузить анкету (возможно, фото устарело)."
         )
-        await update.message.reply_text(
-            caption if 'caption' in locals() else text_md,
-            reply_markup=keyboard,
-            parse_mode="Markdown"
-        )
+        try:
+            await update.message.reply_text(
+                caption_html,
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+        except Exception:
+            # Игнорируем повторную ошибку отправки форматированного текста
+            pass
 
 async def show_main_menu(update: Update, text: str) -> None:
     if not update or not update.message:
@@ -736,8 +764,8 @@ async def get_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return States.DELETE_PHOTO.value
 
     if text == "➡️ Завершить" or text == "➡️ Завершить без фото":
-        # Если нет фотографий, устанавливаем пустой список
-        context.user_data.setdefault('profile_data', {})['photo_ids'] = []
+        # Гарантируем наличие ключа, но не затираем уже добавленные фото
+        context.user_data.setdefault('profile_data', {}).setdefault('photo_ids', [])
         return await save_profile(update, context)
 
     if text == "📷 Добавить фото" or text == "📷 Добавить еще фото":
@@ -1222,7 +1250,7 @@ async def show_likes_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         )
         return States.MAIN_MENU.value
 
-    context.user_data['likes_list'] = [u.to_dict() for u in likers]
+    context.user_data['likes_list'] = likers
     context.user_data['likes_index'] = 0
     return await show_next_like(update, context)
 
