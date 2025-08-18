@@ -1332,7 +1332,17 @@ async def handle_browse_inline_callback(update: Update, context: ContextTypes.DE
     await query.answer()
 
     if data == "pv_stop":
-        await show_main_menu(await update.to_dict().get('update', None) or update, "Поиск завершён. До новых встреч! 👋")
+        # В callback-контексте у нас нет message, поэтому отправим меню напрямую
+        chat_id = update.effective_chat.id
+        reply_keyboard = [
+            ["🚀 Быстрый поиск", "⚙️ Поиск тиммейта"],
+            ["👤 Моя анкета", "❤️ Понравился"],
+        ]
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="Поиск завершён. До новых встреч! 👋",
+            reply_markup=ReplyKeyboardMarkup(reply_keyboard, resize_keyboard=True),
+        )
         return States.MAIN_MENU.value
 
     if data == "pv_next":
@@ -1576,11 +1586,8 @@ async def handle_my_profile_inline_callback(update: Update, context: ContextType
         )
         return States.MAIN_MENU.value
     if data == "mp_edit":
-        # Переход в меню редактирования
-        # Эмулируем текстовую кнопку, чтобы переиспользовать существующую логику
-        fake_update = update
+        # Переход в меню редактирования (callback-контекст)
         if getattr(update, 'message', None) is None:
-            # Создадим простой ответ в чат с инструкцией
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
                 text="Выбери, что хочешь изменить:",
