@@ -180,8 +180,8 @@ def create_fill_profile_keyboard():
 
 def create_line_keyboard():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-    markup.row("Gold Line", "Rome", "Средняя линия")
-    markup.row("Лес", "XP Line", "Везде")
+    markup.row("Голд", "Роум", "Мид")
+    markup.row("Лес", "Эксп", "Везде")
     markup.add(types.KeyboardButton("⬅️ Назад"))
     return markup
 
@@ -410,7 +410,7 @@ def process_line_step(message):
     """Шаг 3: Получение линии."""
     user_id = message.from_user.id
     if message.text == "⬅️ Назад": return back_to_start(message)
-    if message.text not in ["Gold Line", "Rome", "Средняя линия", "Лес", "XP Line", "Везде"]:
+    if message.text not in ["Голд", "Роум", "Мид", "Лес", "Эксп", "Везде"]:
         msg = bot.send_message(user_id, "Пожалуйста, выберите линию с помощью кнопок.", reply_markup=create_line_keyboard())
         bot.register_next_step_handler(msg, process_line_step)
         return
@@ -501,7 +501,6 @@ def finalize_profile(user_id, username):
 
 # --- ОБРАБОТЧИКИ ГЛАВНОГО МЕНЮ ---
 
-@bot.message_handler(func=lambda message: message.text == "👤 Моя анкета")
 def my_profile_handler(message):
     """Показывает анкету пользователя."""
     user_id = message.from_user.id
@@ -546,7 +545,6 @@ def edit_profile_handler(message):
 # --- ЛОГИКА ПОИСКА И ЛАЙКОВ ---
 search_sessions = {}  # Хранит сессии поиска: {user_id: {'profiles': [], 'current_index': 0}}
 
-@bot.message_handler(func=lambda message: message.text == "🚀 Быстрый поиск")
 def quick_search_handler(message):
     """Начинает быстрый поиск активных игроков."""
     user_id = message.from_user.id
@@ -616,14 +614,13 @@ def like_handler(message):
         if liker_profile and liked_profile:
             liker_username = f"@{liker_profile['telegram_username']}" if liker_profile.get('telegram_username') else "профиль"
             liked_username = f"@{liked_profile['telegram_username']}" if liked_profile.get('telegram_username') else "профиль"
-            bot.send_message(liker_id, f"🎉 Мэтч! Вы понравились игроку {liked_profile['nickname']}. Начните общение: {liked_username}")
-            bot.send_message(liked_id, f"🎉 Мэтч! Вы понравились игроку {liker_profile['nickname']}. Начните общение: {liker_username}")
+            bot.send_message(liker_id, f"🎉 У вас мэтч! Вот контакт: {liked_username}")
+            bot.send_message(liked_id, f"🎉 У вас мэтч! Вот контакт: {liker_username}")
 
     is_liked_by_flow = message.text == "❤️ Нравится в ответ"
     search_sessions[liker_id]['current_index'] += 1
     show_next_profile_in_search(liker_id, is_liked_by_flow)
 
-@bot.message_handler(func=lambda message: message.text == "❤️ Понравился")
 def liked_by_list_handler(message):
     """Показывает список тех, кто лайкнул пользователя."""
     user_id = message.from_user.id
@@ -641,6 +638,21 @@ def detailed_search_handler(message):
     """Заглушка для детального поиска."""
     update_last_active(message.from_user.id)
     bot.send_message(message.from_user.id, "🛠 Функция детального поиска с фильтрами находится в разработке и скоро будет добавлена!", reply_markup=create_main_menu_keyboard())
+
+@bot.message_handler(func=lambda message: message.text in ["🚀 Быстрый поиск", "👤 Моя анкета"])
+def main_menu_buttons_handler(message):
+    """Обработчик для кнопок главного меню, чтобы бот реагировал сразу после перезапуска."""
+    user_id = message.from_user.id
+    if not user_exists(user_id):
+        send_welcome(message)
+        return
+    
+    update_last_active(user_id)
+    
+    if message.text == "🚀 Быстрый поиск":
+        quick_search_handler(message)
+    elif message.text == "👤 Моя анкета":
+        my_profile_handler(message)
 
 @bot.message_handler(func=lambda message: True)
 def handle_all_text(message):
