@@ -12,14 +12,14 @@ if [[ "$VIRTUAL_ENV" == "" ]]; then
 fi
 
 # Проверяем наличие токена
-if [[ -z "$TOKEN" ]]; then
+if [[ -z "$TELEGRAM_TOKEN" && -z "$TOKEN" ]]; then
     echo "❌ ОШИБКА: Токен бота не найден!"
     echo ""
     echo "Для установки токена выполните:"
-    echo "export TOKEN='ваш_токен_от_botfather'"
+    echo "export TELEGRAM_TOKEN='ваш_токен_от_botfather' (или TOKEN)"
     echo ""
     echo "Или добавьте токен в файл .env:"
-    echo "echo 'TOKEN=ваш_токен' > .env"
+    echo "echo 'TELEGRAM_TOKEN=ваш_токен' > .env"
     echo ""
     echo "Как получить токен:"
     echo "1. Найдите @BotFather в Telegram"
@@ -32,4 +32,4 @@ echo "✅ Токен найден"
 echo "🚀 Запускаем бота..."
 
 # Запускаем бота
-python main.py
+python main_improved.py

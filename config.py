@@ -5,14 +5,15 @@ from dotenv import load_dotenv
 load_dotenv()
 
 def get_token():
-    """Получает токен бота из переменных окружения или файла .env"""
-    token = os.getenv('TOKEN')
+    """Получает токен бота из переменных окружения или файла .env.
+    Поддерживает переменные TOKEN и TELEGRAM_TOKEN."""
+    token = os.getenv('TOKEN') or os.getenv('TELEGRAM_TOKEN')
     if not token:
         print("❌ ОШИБКА: Токен бота не найден!")
         print("")
         print("Установите токен одним из способов:")
-        print("1. Переменная окружения: export TOKEN='ваш_токен'")
-        print("2. Файл .env: создайте файл .env с содержимым TOKEN=ваш_токен")
+        print("1. Переменная окружения: export TELEGRAM_TOKEN='ваш_токен' (или TOKEN)")
+        print("2. Файл .env: создайте файл .env с содержимым TELEGRAM_TOKEN=ваш_токен")
         print("")
         print("Как получить токен:")
         print("1. Найдите @BotFather в Telegram")
@@ -25,7 +26,7 @@ def get_token():
 DATABASE_NAME = 'mlbb_finder.db'
 
 # Настройки поиска
-ACTIVE_TIMEOUT_MINUTES = 10  # Время активности пользователя в минутах
+ACTIVE_TIMEOUT_MINUTES = 5  # Время активности пользователя в минутах
 
 # Настройки интерфейса
 MAX_PROFILES_PER_SEARCH = 50  # Максимальное количество профилей в поиске
