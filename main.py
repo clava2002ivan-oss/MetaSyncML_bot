@@ -306,10 +306,24 @@ def acquire_single_instance_lock(lock_file_path: str = "/tmp/mlbb_team_finder_bo
             "Обнаружен уже запущенный экземпляр бота на этой машине. "
             "Остановите его (или дождитесь завершения) и запустите снова."
         )
+
+async def _post_init(application: Application) -> None:
+    try:
+        await application.bot.delete_webhook(drop_pending_updates=True)
+    except Exception:
+        logger.exception("delete_webhook failed (ignored)")
+
 def build_application() -> Application:
     # Persistence to allow resume after restart without /start
     persistence = PicklePersistence(filepath="bot_data.pkl")
-    app = Application.builder().token(TELEGRAM_TOKEN).persistence(persistence).build()
+    app = (
+        Application
+        .builder()
+        .token(TELEGRAM_TOKEN)
+        .persistence(persistence)
+        .post_init(_post_init)
+        .build()
+    )
 
     # Conversation handler
     conv = ConversationHandler(
@@ -2008,19 +2022,6 @@ def main():
     acquire_single_instance_lock()
 
     app = build_application()
-
-    # На всякий случай очищаем возможный webhook перед запуском polling,
-    # чтобы исключить конфликт режимов доставки обновлений.
-    try:
-        asyncio.run(app.bot.delete_webhook(drop_pending_updates=True))
-    except Exception:
-        logger.exception("delete_webhook failed (ignored)")
-
-    # Гарантируем наличие активного event loop (Python 3.12+),
-    # так как после asyncio.run() текущего цикла уже нет
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
     app.run_polling()
 
 if __name__ == "__main__":
