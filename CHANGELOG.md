@@ -75,7 +75,7 @@
 
 Для развертывания на PythonAnywhere используйте команду:
 ```bash
-TELEGRAM_TOKEN=ваш_токен python3.9 /home/YourUsername/path/to/main_final.py
+TELEGRAM_TOKEN=ваш_токен python3.12 /home/YourUsername/path/to/main_final_v2.py
 ```
 
 ### Статус

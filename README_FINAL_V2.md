@@ -62,7 +62,7 @@ python main_final_v2.py
 1. Загрузите файлы на PythonAnywhere
 2. Создайте "Always-on Task" с командой:
 ```bash
-TELEGRAM_TOKEN=ваш_токен python3.9 /home/YourUsername/path/to/main_final_v2.py
+TELEGRAM_TOKEN=ваш_токен python3.12 /home/YourUsername/path/to/main_final_v2.py
 ```
 
 ## Структура проекта
@@ -141,7 +141,7 @@ pip install --user pyTelegramBotAPI python-dotenv
 3. Создайте "Always-on Task":
    - Перейдите в раздел "Tasks"
    - Создайте новую задачу
-   - Команда: `TELEGRAM_TOKEN=ваш_токен python3.9 /home/YourUsername/path/to/main_final_v2.py`
+   - Команда: `TELEGRAM_TOKEN=ваш_токен python3.12 /home/YourUsername/path/to/main_final_v2.py`
    - Нажмите "Create"
 
 4. Запустите задачу
