@@ -439,7 +439,7 @@ async def get_winrate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     winrate = _parse_winrate(text)
     if winrate is None:
         await update.message.reply_text(
-            "Эй, я просил только цифры от 0 до 100! 😊 Никаких букв и символов, только чистое число.\nПопробуй ещё раз:",
+            "Эй, я просил только цифры от 0 до 100! 😊 Никаких букв, знаков или запятых.\n💡 Если у тебя 50.6% — округли до 51!\nПопробуй ещё раз:",
             reply_markup=ReplyKeyboardMarkup([["⬅️ Назад", "❌ Отмена"]], resize_keyboard=True)
         )
         return States.GET_WINRATE.value
@@ -1407,7 +1407,7 @@ async def process_edit_profile_input(update: Update, context: ContextTypes.DEFAU
         winrate = _parse_winrate(choice)
         if winrate is None:
             await update.message.reply_text(
-                "Пожалуйста, введите число от 0 до 100!",
+                "Пожалуйста, введите число от 0 до 100!\n💡 Если у тебя 50.6% — округли до 51!",
                 reply_markup=ReplyKeyboardMarkup([["⬅️ Назад"]], resize_keyboard=True)
             )
             return States.EDIT_PROFILE_INPUT.value
