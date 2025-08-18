@@ -2016,6 +2016,11 @@ def main():
     except Exception:
         logger.exception("delete_webhook failed (ignored)")
 
+    # Гарантируем наличие активного event loop (Python 3.12+),
+    # так как после asyncio.run() текущего цикла уже нет
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
     app.run_polling()
 
 if __name__ == "__main__":
