@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Env
+.env
+.venv/
+
+# App files
+mlbb.db
+bot_data.pkl
+bot.log
+
+# Editors
+.vscode/
+.idea/
+.python-version
+.DS_Store
