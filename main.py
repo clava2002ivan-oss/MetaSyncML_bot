@@ -329,6 +329,7 @@ def build_application() -> Application:
             ],
             States.MY_PROFILE.value: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_my_profile_action),
+                CallbackQueryHandler(handle_my_profile_inline_callback, pattern=r"^mp_"),
             ],
             States.EDIT_PROFILE_CHOICE.value: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_edit_profile_choice),
@@ -1366,6 +1367,74 @@ async def show_next_like(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     context.user_data['current_liker_id'] = profile.user_id
     return States.LIKES_VIEWING.value
 
+async def show_next_like_inline(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Версия показа следующего лайка для инлайн-кнопок (callback_query)."""
+    lst = context.user_data.get('likes_list', [])
+    idx = context.user_data.get('likes_index', 0)
+    chat_id = update.effective_chat.id
+
+    if idx >= len(lst):
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="Это все лайки на сейчас. ❤️",
+            reply_markup=ReplyKeyboardMarkup([["⬅️ В главное меню"]], resize_keyboard=True),
+        )
+        return States.LIKES_VIEWING.value
+
+    pdata = lst[idx]
+    profile = db.UserProfile(**pdata)
+    await send_profile_album(
+        context.bot,
+        chat_id,
+        profile,
+        caption_prefix="Тебя лайкнули! Посмотри анкету:\n\n",
+        inline_mode="likes",
+        short=False,
+    )
+    context.user_data['likes_index'] = idx + 1
+    context.user_data['current_liker_id'] = profile.user_id
+    return States.LIKES_VIEWING.value
+
+async def handle_likes_inline_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    data = query.data if query else ""
+    if query:
+        await query.answer()
+
+    chat_id = update.effective_chat.id
+
+    if data == "lk_menu":
+        # Переход в главное меню
+        reply_keyboard = [["🚀 Быстрый поиск", "⚙️ Поиск тиммейта"], ["👤 Моя анкета", "❤️ Понравился"]]
+        await context.bot.send_message(chat_id=chat_id, text="Вернулись в меню. 😊", reply_markup=ReplyKeyboardMarkup(reply_keyboard, resize_keyboard=True))
+        return States.MAIN_MENU.value
+
+    if data == "lk_skip":
+        return await show_next_like_inline(update, context)
+
+    if data == "lk_mutual":
+        liked_id = context.user_data.get('current_liker_id')
+        if liked_id:
+            db.add_like(update.effective_user.id, liked_id)
+            if db.has_like(liked_id, update.effective_user.id):
+                liked_user = db.get_user_by_id(liked_id)
+                me = db.get_user_by_id(update.effective_user.id)
+                if liked_user and me:
+                    try:
+                        await context.bot.send_message(chat_id=liked_id, text=f"🎉 У вас мэтч с {me.nickname}! Напиши: @{me.telegram_username or 'скрыто'}")
+                        await send_profile_card(context.bot, liked_id, me, prefix="Твоя анкета:\n\n")
+                        await send_profile_card(context.bot, liked_id, liked_user, prefix="Анкета напарника:\n\n")
+                    except TelegramError:
+                        logger.exception("notify mutual in likes inline failed")
+                    try:
+                        await context.bot.send_message(chat_id=chat_id, text=f"🎉 Мэтч! Контакт: @{liked_user.telegram_username or 'скрыто'}")
+                    except TelegramError:
+                        logger.exception("notify me inline failed")
+        return await show_next_like_inline(update, context)
+
+    # По умолчанию остаёмся в текущем состоянии
+    return States.LIKES_VIEWING.value
+
 async def handle_likes_viewing_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     choice = update.message.text
     if choice == "⏹️ В меню":
@@ -1447,6 +1516,62 @@ async def handle_my_profile_action(update: Update, context: ContextTypes.DEFAULT
             reply_markup=ReplyKeyboardMarkup([["⬅️ Назад"]], resize_keyboard=True)
         )
         return States.VIEW_STATS.value  # Переходим в новое состояние
+    return States.MY_PROFILE.value
+
+async def handle_my_profile_inline_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    data = query.data if query else ""
+    if query:
+        await query.answer()
+
+    if data == "mp_menu":
+        # Назад в главное меню (через обычное сообщение, т.к. мы в callback)
+        chat_id = update.effective_chat.id
+        reply_keyboard = [
+            ["🚀 Быстрый поиск", "⚙️ Поиск тиммейта"],
+            ["👤 Моя анкета", "❤️ Понравился"],
+        ]
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="Ок, что дальше? 😊",
+            reply_markup=ReplyKeyboardMarkup(reply_keyboard, resize_keyboard=True),
+        )
+        return States.MAIN_MENU.value
+    if data == "mp_edit":
+        # Переход в меню редактирования
+        # Эмулируем текстовую кнопку, чтобы переиспользовать существующую логику
+        fake_update = update
+        if getattr(update, 'message', None) is None:
+            # Создадим простой ответ в чат с инструкцией
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="Выбери, что хочешь изменить:",
+                reply_markup=ReplyKeyboardMarkup([
+                    ["👤 Никнейм", "📊 Winrate"],
+                    ["⚔️ Линия", "🏆 Ранг"],
+                    ["🎯 Цель", "📝 О себе"],
+                    ["🖼️ Изменить фото", "🗑️ Удалить анкету"],
+                    ["⬅️ Назад"]
+                ], resize_keyboard=True),
+            )
+            return States.EDIT_PROFILE_CHOICE.value
+    if data == "mp_stats":
+        stats = db.get_user_stats(update.effective_user.id)
+        txt = (
+            f"📊 *Твоя статистика:*\n\n"
+            f"👀 Просмотров: {stats.get('views', 0)}\n"
+            f"❤️ Получено лайков: {stats.get('likes_received', 0)}\n"
+            f"👍 Поставлено лайков: {stats.get('likes_given', 0)}\n"
+            f"🤝 Взаимных лайков: {stats.get('mutual_likes', 0)}"
+        )
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=txt,
+            parse_mode="Markdown",
+            reply_markup=ReplyKeyboardMarkup([["⬅️ Назад"]], resize_keyboard=True),
+        )
+        return States.VIEW_STATS.value
+
     return States.MY_PROFILE.value
 
 # Новый обработчик для просмотра статистики
