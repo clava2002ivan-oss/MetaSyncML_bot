@@ -671,7 +671,8 @@ async def get_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     # фото
     if update.message and update.message.photo:
         # Инициализируем список фотографий, если его еще нет
-        context.user_data.setdefault('profile_data', {})['photo_ids'] = []
+        context.user_data.setdefault('profile_data', {})
+        context.user_data['profile_data'].setdefault('photo_ids', [])
         
         # Добавляем ID фотографии в список
         photo_id = update.message.photo[-1].file_id
@@ -681,12 +682,12 @@ async def get_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         if len(context.user_data['profile_data']['photo_ids']) >= MAX_PHOTOS:
             await update.message.reply_text(
                 f"Вау, ты загрузил(а) уже {MAX_PHOTOS} фото! Это максимум! 📸",
-                reply_markup=ReplyKeyboardMarkup([["➡️ Завершить", "❌ Отмена"], ["⬅️ Назад"]], resize_keyboard=True)
+                reply_markup=ReplyKeyboardMarkup([["➡️ Завершить", "❌ Отмена"], ["❌ Удалить фото"], ["⬅️ Назад"]], resize_keyboard=True)
             )
         else:
             await update.message.reply_text(
                 f"Классное фото! 📸 Ещё можешь добавить {MAX_PHOTOS - len(context.user_data['profile_data']['photo_ids'])} фото или завершить.",
-                reply_markup=ReplyKeyboardMarkup([["📷 Добавить еще фото", "➡️ Завершить"], ["❌ Отмена"], ["⬅️ Назад"]], resize_keyboard=True)
+                reply_markup=ReplyKeyboardMarkup([["📷 Добавить еще фото", "➡️ Завершить"], ["❌ Удалить фото"], ["❌ Отмена"], ["⬅️ Назад"]], resize_keyboard=True)
             )
         return States.GET_PHOTO.value
 
@@ -706,22 +707,61 @@ async def get_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         )
         return ConversationHandler.END
 
+    if text == "❌ Удалить фото":
+        photo_ids = context.user_data.get('profile_data', {}).get('photo_ids', [])
+        if not photo_ids:
+            await update.message.reply_text(
+                "У тебя нет загруженных фото! Нечего удалять 😜",
+                reply_markup=ReplyKeyboardMarkup([["⬅️ Назад"]], resize_keyboard=True)
+            )
+            return States.GET_PHOTO.value
+        # Создаем клавиатуру с кнопками для каждого фото
+        keyboard = []
+        row = []
+        for i in range(1, MAX_PHOTOS + 1):
+            if i <= len(photo_ids):
+                row.append(f"{i}✅")
+            else:
+                row.append(f"{i}❌")
+            if len(row) == 3:
+                keyboard.append(row)
+                row = []
+        if row:
+            keyboard.append(row)
+        keyboard.append(["⬅️ Назад"])
+        await update.message.reply_text(
+            "Выбери фото для удаления:",
+            reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        )
+        return States.DELETE_PHOTO.value
+
     if text == "➡️ Завершить" or text == "➡️ Завершить без фото":
         # Если нет фотографий, устанавливаем пустой список
         context.user_data.setdefault('profile_data', {})['photo_ids'] = []
         return await save_profile(update, context)
 
     if text == "📷 Добавить фото" or text == "📷 Добавить еще фото":
+        # Показываем подсказку отправить фото; если есть хотя бы одно фото — добавляем кнопку удаления
+        has_photos = bool(context.user_data.get('profile_data', {}).get('photo_ids'))
+        keyboard = [["➡️ Завершить", "❌ Отмена"]]
+        if has_photos:
+            keyboard.append(["❌ Удалить фото"])
+        keyboard.append(["⬅️ Назад"])
         await update.message.reply_text(
             "Отправь фото (из Галереи) или нажми «➡️ Завершить». 📷",
-            reply_markup=ReplyKeyboardMarkup([["➡️ Завершить", "❌ Отмена"], ["⬅️ Назад"]], resize_keyboard=True)
+            reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         )
         return States.GET_PHOTO.value
 
     # иначе повторим приглашение
+    has_photos = bool(context.user_data.get('profile_data', {}).get('photo_ids'))
+    keyboard = [["➡️ Завершить", "❌ Отмена"]]
+    if has_photos:
+        keyboard.append(["❌ Удалить фото"])
+    keyboard.append(["⬅️ Назад"])
     await update.message.reply_text(
         "Отправь фото или нажми «➡️ Завершить». 📷",
-        reply_markup=ReplyKeyboardMarkup([["➡️ Завершить", "❌ Отмена"], ["⬅️ Назад"]], resize_keyboard=True)
+        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     )
     return States.GET_PHOTO.value
 
@@ -1306,7 +1346,12 @@ async def handle_edit_profile_choice(update: Update, context: ContextTypes.DEFAU
         return States.DELETE_CONFIRM.value
     if choice == "🖼️ Изменить фото":
         context.user_data['editing_photo'] = True
-        context.user_data.setdefault('photo_ids', [])  # Инициализируем пустой список для новых фото
+        # Инициализируем список текущих фото из профиля, чтобы можно было удалять по номерам
+        current = db.get_user_by_id(update.effective_user.id)
+        if current and current.photo_ids:
+            context.user_data['photo_ids'] = list(current.photo_ids)
+        else:
+            context.user_data['photo_ids'] = []
         await update.message.reply_text(
             "Отправь новое фото или нажми «❌ Удалить фото». 📷",
             reply_markup=ReplyKeyboardMarkup([["❌ Удалить фото"], ["⬅️ Назад"]], resize_keyboard=True)
@@ -1580,21 +1625,42 @@ async def handle_delete_photo(update: Update, context: ContextTypes.DEFAULT_TYPE
     text = update.message.text
     
     if text == "⬅️ Назад":
-        await update.message.reply_text(
-            "Верну тебя назад, чтобы продолжили настраивать анкету 👌",
-            reply_markup=ReplyKeyboardMarkup([["❌ Удалить фото", "⬅️ Назад"]], resize_keyboard=True)
-        )
-        return States.EDIT_PHOTO.value
+        # Определяем, из какого режима пришли: редактирование или создание анкеты
+        if context.user_data.get('editing_photo'):
+            await update.message.reply_text(
+                "Верну тебя назад, чтобы продолжили настраивать анкету 👌",
+                reply_markup=ReplyKeyboardMarkup([["❌ Удалить фото"], ["⬅️ Назад"]], resize_keyboard=True)
+            )
+            return States.EDIT_PHOTO.value
+        else:
+            # Возвращаемся в шаг загрузки фото при создании анкеты
+            has_photos = bool(context.user_data.get('profile_data', {}).get('photo_ids'))
+            keyboard = [["➡️ Завершить", "❌ Отмена"]]
+            if has_photos:
+                keyboard.append(["❌ Удалить фото"])
+            keyboard.append(["⬅️ Назад"])
+            await update.message.reply_text(
+                "Верну тебя назад, чтобы продолжили настраивать анкету 👌",
+                reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+            )
+            return States.GET_PHOTO.value
     
     # Проверяем, что пользователь нажал на кнопку с номером фото
     if text.endswith("✅"):
         try:
             photo_num = int(text[:-1])  # Убираем ✅ и получаем номер
-            photo_ids = context.user_data.get('photo_ids', [])
+            # Выбираем правильный список фотографий в зависимости от режима
+            if context.user_data.get('editing_photo'):
+                photo_ids = context.user_data.get('photo_ids', [])
+            else:
+                photo_ids = context.user_data.get('profile_data', {}).get('photo_ids', [])
             
             if 1 <= photo_num <= len(photo_ids):
                 # Удаляем фото
-                removed_photo = photo_ids.pop(photo_num - 1)
+                _ = photo_ids.pop(photo_num - 1)
+                # Сохраняем обратно список, если мы на этапе создания анкеты
+                if not context.user_data.get('editing_photo'):
+                    context.user_data.setdefault('profile_data', {})['photo_ids'] = photo_ids
                 await update.message.reply_text(
                     f"Хей, фоточка №{photo_num} удалена 🗑️ Не переживай, всегда можно загрузить новую!",
                     reply_markup=ReplyKeyboardMarkup([["⬅️ Назад"]], resize_keyboard=True)
