@@ -144,6 +144,25 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+## Развертывание на хостинге
+
+### PythonAnywhere (рекомендуется)
+
+Для развертывания на PythonAnywhere используйте специальные файлы:
+
+- `PYTHONANYWHERE_SETUP.md` - подробная инструкция
+- `PYTHONANYWHERE_QUICK.md` - быстрая настройка
+- `webhook_bot.py` - версия бота с webhook
+- `wsgi_pythonanywhere.py` - WSGI файл для PythonAnywhere
+- `setup_pythonanywhere.sh` - автоматический скрипт настройки
+
+### Другие хостинги
+
+Для других хостингов используйте стандартные файлы:
+- `main_improved.py` - основная версия бота
+- `config.py` - конфигурация
+- `requirements.txt` - зависимости
+
 ## Поддержка
 
 Если у вас возникли вопросы или проблемы, создайте issue в репозитории проекта.
