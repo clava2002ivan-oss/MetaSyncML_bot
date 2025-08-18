@@ -76,6 +76,7 @@ def create_main_menu_keyboard():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.row("🚀 Быстрый поиск", "⚙️ Поиск тиммейта")
     markup.row("👤 Моя анкета", "❤️ Понравился")
+    markup.row("📊 Статистика")
     return markup
 
 def create_my_profile_keyboard():
@@ -138,7 +139,23 @@ def handle_start_options(message):
     """Обрабатывает первые шаги пользователя."""
     user_id = message.from_user.id
     if message.text == "ℹ️ О нас":
-        bot.send_message(user_id, "Этот раздел в разработке. Здесь будет информация о проекте.", reply_markup=create_fill_profile_keyboard())
+        about_text = """
+🎮 **О боте для поиска тиммейтов MLBB**
+
+Этот бот создан для помощи игрокам Mobile Legends Bang Bang в поиске тиммейтов для совместной игры.
+
+**Возможности:**
+• Создание подробных анкет
+• Поиск активных игроков
+• Система лайков и мэтчей
+• Удобный интерфейс
+
+**Наша миссия:**
+Объединить игроков MLBB и создать сильные команды!
+
+Присоединяйтесь к сообществу! 🚀
+        """
+        bot.send_message(user_id, about_text, parse_mode='Markdown', reply_markup=create_fill_profile_keyboard())
         return
     bot.send_message(user_id, "✍️ Отлично, давайте создадим анкету и будем двигаться дальше.", reply_markup=types.ReplyKeyboardRemove())
     msg = bot.send_message(user_id, "Введите ваш игровой ник:")
@@ -297,6 +314,28 @@ def edit_profile_handler(message):
     bot.send_message(message.from_user.id, "Давайте обновим вашу анкету. Начнем сначала.")
     handle_start_options(message)
 
+@bot.message_handler(commands=['stats'])
+def send_stats(message):
+    """Обработчик команды /stats."""
+    user_id = message.from_user.id
+    if not db.user_exists(user_id):
+        bot.send_message(user_id, "Сначала создайте анкету!", reply_markup=create_fill_profile_keyboard())
+        return
+    
+    db.update_last_active(user_id)
+    stats = db.get_user_stats(user_id)
+    
+    stats_text = f"""
+📊 **Ваша статистика:**
+
+❤️ Лайков поставлено: {stats['likes_given']}
+💌 Лайков получено: {stats['likes_received']}
+🎉 Мэтчей: {stats['matches']}
+
+Продолжайте искать тиммейтов!
+    """
+    bot.send_message(user_id, stats_text, parse_mode='Markdown', reply_markup=create_main_menu_keyboard())
+
 # --- ЛОГИКА ПОИСКА И ЛАЙКОВ ---
 search_sessions = {}  # Хранит сессии поиска: {user_id: {'profiles': [], 'current_index': 0}}
 
@@ -394,7 +433,7 @@ def detailed_search_handler(message):
     db.update_last_active(message.from_user.id)
     bot.send_message(message.from_user.id, "🛠 Функция детального поиска с фильтрами находится в разработке и скоро будет добавлена!", reply_markup=create_main_menu_keyboard())
 
-@bot.message_handler(func=lambda message: message.text in ["🚀 Быстрый поиск", "👤 Моя анкета", "❤️ Понравился"])
+@bot.message_handler(func=lambda message: message.text in ["🚀 Быстрый поиск", "👤 Моя анкета", "❤️ Понравился", "📊 Статистика"])
 def main_menu_buttons_handler(message):
     """Обработчик для кнопок главного меню, чтобы бот реагировал сразу после перезапуска."""
     user_id = message.from_user.id
@@ -410,6 +449,8 @@ def main_menu_buttons_handler(message):
         my_profile_handler(message)
     elif message.text == "❤️ Понравился":
         liked_by_list_handler(message)
+    elif message.text == "📊 Статистика":
+        send_stats(message)
 
 @bot.message_handler(func=lambda message: True)
 def handle_all_text(message):
